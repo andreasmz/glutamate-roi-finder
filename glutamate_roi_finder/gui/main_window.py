@@ -1,4 +1,6 @@
 import gui.settings as settings
+import detection.diffDetection as detectDiff
+import detection.roiDetection as roiDetect
 
 import os, sys
 import tkinter as tk
@@ -11,37 +13,45 @@ import matplotlib
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.widgets import Slider
+from matplotlib.patches import Circle
 import pickle
 
-import detection.diffDetection as detectDiff
-
+from scyjava import jimport
 
 def GUI():
+    RM = None
+    OvalRoi = None
+    ij = None
+    ij_load = None
+
     def ImageJReady():
         menuImageJ.entryconfig("Read Image", state="normal")
         menuImageJ.entryconfig("Save dump", state="normal")
 
     def StartImageJ():
-        global ij, ij_load
+        nonlocal ij, ij_load, RM, OvalRoi
         ij = imagej.init(settings.ImageJPath, mode='interactive')
+        RM = jimport("ij.plugin.frame.RoiManager")
+        OvalRoi = jimport('ij.gui.OvalRoi')
         ij.ui().showUI()
         ImageJReady()
-        progStartingImgJ.grid_forget()
-        lblStartImageJ.grid_forget()
+        progStartingImgJ.pack_forget()
+        lblStartImageJ.pack_forget()
 
         lblImgInfo["text"] = "No image selected"
-        lblImgInfo.grid(row=2, column=0, columnspan=2)
+        lblImgInfo.pack()
         ij_load = None
 
     def MbtnStartImageJ_Click():
-        global ij_load
+        nonlocal ij_load
         if (settings.ImageJPath is None):
             return
         if (not os.path.exists(settings.ImageJPath)):
             messagebox.showerror("Glutamate Roi Finder", "The given ImageJ path doesn't exist")
             return
 
-        lblStartImageJ.grid(row=1, column=0)
+        lblStartImageJ.pack()
         ij_load = True
 
         menuImageJ.entryconfig("Start ImageJ", state="disabled")
@@ -50,13 +60,14 @@ def GUI():
             progStartingImgJ.step(10)
             if ij_load is not None:
                 root.after(50, ProgStartingImgJ_Step)
-        progStartingImgJ.grid(row=1, column=1)
+        progStartingImgJ.pack()
         ProgStartingImgJ_Step()
         
         t = threading.Thread(target=StartImageJ)
         t.start()
     
     def MBtnReadImage():
+        nonlocal ij
         detectDiff.img = ij.py.active_xarray() 
         if detectDiff.img is None:
             return
@@ -64,9 +75,9 @@ def GUI():
         if (np.max(detectDiff.img) <= 2**15):
             detectDiff.img = detectDiff.img.astype("int16")
         if detectDiff.img is not None:
+            detectDiff.imgConv = detectDiff.ConvTask()
             lblImgInfo["text"] = f"{detectDiff.img.shape}, dtype={detectDiff.img.dtype}"
             detectDiff.ProcessImg()
-            detectDiff.ProcessDiff()
             Replot()
             print("Img Size =", sys.getsizeof(detectDiff.imgDiffMax))
         else:
@@ -77,6 +88,8 @@ def GUI():
         ax2.clear()
         ax3.clear()
         ax4.clear()
+        ax1.set_title("Diff Maximum")
+        ax2.set_title("Diff 3D Projection")
         if detectDiff.imgDiffMax is None:
             return
         
@@ -88,16 +101,60 @@ def GUI():
         #C = (detectDiff.imgDiffMax > scaleDiff.get()).astype(int)
         #lblDebug = str(C)
         ax2.plot_surface(X,Y, detectDiff.imgDiffMax)
+        ReplotROI()
 
-        ax3.imshow((detectDiff.imgDiffMax >= scaleDiff.get()).astype(int))
+    def ReplotROI():
+        ax3.clear()
+        ax4.clear()
+        ax3.set_title("Detected Neuron areas")
+
+        if detectDiff.imgDiffMax is None:
+            return
+
+        detectDiff.Diff_Mask(scaleDiff.get())
+        roiDetect.Label(detectDiff.imgDiffRegions, radius=varROIRadius.get(), minROISize=varROIMinSize.get()/100)
+
+        selectedROI = None
+        
+        if (varROI.get() != 0 and varROI.get() <= len(roiDetect.rois)):
+            roiCentroid = roiDetect.rois[varROI.get()-1]
+            selectedROI = roiCentroid
+            if (detectDiff.imgConv is not None):
+                ax4.plot(detectDiff.imgConv[:, roiCentroid[0], roiCentroid[1]])
+                ax4.set_title("ROI" + str(varROI.get()))
+
+        ax3.imshow(detectDiff.imgDiffRegions)
+        for roi in roiDetect.rois:
+            color = "red" 
+            if (selectedROI == roi):
+                color = "yellow"
+            c = Circle(roi, varROIRadius.get(), color=color, fill=False)
+            ax3.add_patch(c)
+        scaleROI.configure(to=len(roiDetect.rois))
 
         canvas.draw()
-    
-    def ScaleDiff_ValueChanged(val):
+
+    def ExportROIs():
+        nonlocal ij
+        if ij is None:
+            print("ij not started")
+            return
+        rm = RM.getRoiManager()
+        for roi in roiDetect.rois:
+            roi = OvalRoi(roi[0],roi[1], varROIRadius.get(), varROIRadius.get())
+            rm.addRoi(roi)
+
+    def ScaleDiff_Replot(val):
         Replot()
 
-    def intDiff_ValueChanged():
+    def ScaleDiff_ReplotROI(val):
+        ReplotROI()
+
+    def intDiff_Replot():
         Replot()
+    
+    def intDiff_ReplotROI():
+        ReplotROI()
 
     def _Debug_Save():
         savePath = os.path.join(settings.parentPath, "imgDiffMax.dump")
@@ -140,20 +197,44 @@ def GUI():
     lblStartImageJ = tk.Label(toolFrame,text="Starting ImageJ...")
     lblImgInfo = tk.Label(toolFrame)
 
-    #lblToolFrame = tk.Label(toolFrame, text="", width=32)
-    #lblToolFrame.grid(row=1, column=0)
-    lblScaleDiffInfo = tk.Label(toolFrame, text="Threshold for diff detection")
-    lblScaleDiffInfo.grid(row=3, column=0, columnspan=2)
+    lblfDiffDetection = tk.LabelFrame(toolFrame, text="Diff detection")
+    lblfDiffDetection.pack()
+    lblScaleDiffInfo = tk.Label(lblfDiffDetection, text="threshold")
+    lblScaleDiffInfo.grid(row=0, column=0, columnspan=2)
     varDiff = tk.IntVar(value=20)
-    intDiff = tk.Spinbox(toolFrame, from_=1, to=200, textvariable=varDiff,width=5, command=intDiff_ValueChanged)
-    intDiff.grid(row=4, column=0)
-    scaleDiff = tk.Scale(toolFrame, variable=varDiff, from_=1, to=200, orient="horizontal", command=ScaleDiff_ValueChanged, showvalue=False)
-    scaleDiff.grid(row=4, column=1)
+    intDiff = tk.Spinbox(lblfDiffDetection, from_=1, to=200, textvariable=varDiff,width=5, command=intDiff_Replot)
+    intDiff.grid(row=1, column=0)
+    scaleDiff = tk.Scale(lblfDiffDetection, variable=varDiff, from_=1, to=200, orient="horizontal", command=ScaleDiff_Replot, showvalue=False)
+    scaleDiff.grid(row=1, column=1)
+
+    lblfRoiDetection = tk.LabelFrame(toolFrame, text="ROI Detection")
+    lblfRoiDetection.pack()
+    tk.Label(lblfRoiDetection, text="ROI radius").grid(row=0, column=0)
+    varROIRadius = tk.IntVar(value=10)
+    intROIRadius = tk.Spinbox(lblfRoiDetection, from_=1, to=25, textvariable=varROIRadius, width=5, command=intDiff_ReplotROI)
+    intROIRadius.grid(row=0, column=1)
+    tk.Label(lblfRoiDetection, text="px").grid(row=0, column=2)
+    lblROIMinSize = tk.Label(lblfRoiDetection, text="Minimum size of ROI")
+    lblROIMinSize.grid(row=3, column=0)
+    varROIMinSize = tk.IntVar(value=30)
+    intROIMinSize = tk.Spinbox(lblfRoiDetection, from_=0, to=100, textvariable=varROIMinSize, width=5, command=intDiff_ReplotROI)
+    intROIMinSize.grid(row=3,column=1)
+    tk.Label(lblfRoiDetection, text="%").grid(row=3, column=2)    
+
+    lblfRoi = tk.LabelFrame(toolFrame, text="ROI")
+    lblfRoi.pack()
+    tk.Label(lblfRoi, text="Select ROI").grid(row=0, column=0)
+    varROI = tk.IntVar(value=0)
+    scaleROI = tk.Scale(lblfRoi, variable=varROI, from_=0, to=0, orient="horizontal", command=ScaleDiff_ReplotROI, showvalue=True)
+    scaleROI.grid(row=0, column=1)
+    btnExportROI = tk.Button(lblfRoi, text="Export ROIs", command=ExportROIs)
+    btnExportROI.grid(row=1, column=0, columnspan=2)
 
     lblDebug = tk.Label(toolFrame)
-    lblDebug.grid(row=5, column=0, columnspan=2)
+    lblDebug.pack()
 
     figure = plt.Figure(figsize=(6,6), dpi=100)
+    figure.tight_layout(pad=200.32)
     ax1 = figure.add_subplot(221)  
     ax2 = figure.add_subplot(222,projection="3d") 
     ax3 = figure.add_subplot(223)  
@@ -161,7 +242,12 @@ def GUI():
     ax1.set_title("Diff Maximum")
     ax2.set_title("Diff 3D Projection")
     ax3.set_title("Detected Neuron areas")
-    ax4.set_title("ROIs")
+    print()
+
+    #axslider_roi = figure.add_axes([ax4.get_position().x0, ax4.get_position().y1, 0.3, 0.03])
+    #s_time = Slider(axslider_roi, 'ROI', 0, 30, valinit=0)
+
     canvas = FigureCanvasTkAgg(figure, plotFrame)
     canvas.get_tk_widget().pack(fill="both", expand=True)
+    canvas.draw()
     root.mainloop()
