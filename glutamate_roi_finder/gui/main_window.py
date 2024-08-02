@@ -79,7 +79,7 @@ def GUI():
             lblImgInfo["text"] = f"{detectDiff.img.shape}, dtype={detectDiff.img.dtype}"
             detectDiff.ProcessImg()
             Replot()
-            print("Img Size =", sys.getsizeof(detectDiff.imgDiffMax))
+            print("Img Size =", round(sys.getsizeof(detectDiff.imgDiffMax)/(1024**2),2),"MB")
         else:
             lblImgInfo["text"] = "No image selected"
 
@@ -157,15 +157,16 @@ def GUI():
         ReplotROI()
 
     def _Debug_Save():
-        savePath = os.path.join(settings.parentPath, "imgDiffMax.dump")
+        savePath = os.path.join(settings.parentPath, "img.dump")
         print("Saved dump to", savePath)
         with open(savePath, 'wb') as outp:
-            pickle.dump(detectDiff.imgDiffMax, outp, pickle.HIGHEST_PROTOCOL)
+            pickle.dump(detectDiff.img, outp, pickle.HIGHEST_PROTOCOL)
 
     def _Debug_Load():
-        savePath = os.path.join(settings.parentPath, "imgDiffMax.dump")
+        savePath = os.path.join(settings.parentPath, "img.dump")
         with open(savePath, 'rb') as intp:
-            detectDiff.imgDiffMax = pickle.load(intp)
+            detectDiff.img = pickle.load(intp)
+        detectDiff.ProcessImg()
         ImageJReady()
         lblImgInfo["text"] = "Img from dump"
         Replot()

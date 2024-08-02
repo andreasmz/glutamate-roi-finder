@@ -2,13 +2,15 @@ import numpy as np
 from scipy.ndimage import convolve
 import threading
 
+global img,imgDiff,imgDiffMax,imgDiffRegions,imgConv
 img = None
-imgConv = None
+imgDiff = None
 imgDiffMax = None
 imgDiffRegions = None
+imgConv = None
 
 def ProcessImg():
-    global imgDiff, imgDiffMax
+    global img, imgDiff, imgDiffMax
     if img is None:
         return
     imgDiff = np.diff(img, axis=0)
