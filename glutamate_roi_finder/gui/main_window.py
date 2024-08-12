@@ -1,6 +1,6 @@
 import gui.settings as settings
-import detection.diffDetection as detectDiff
-import detection.roiDetection as roiDetect
+import utils.diffDetection as detectDiff
+import utils.roiDetection as roiDetect
 
 import os, sys
 import tkinter as tk
@@ -157,13 +157,13 @@ def GUI():
         ReplotROI()
 
     def _Debug_Save():
-        savePath = os.path.join(settings.parentPath, "img.dump")
+        savePath = os.path.join(settings.settingsPath, "img.dump")
         print("Saved dump to", savePath)
         with open(savePath, 'wb') as outp:
             pickle.dump(detectDiff.img, outp, pickle.HIGHEST_PROTOCOL)
 
     def _Debug_Load():
-        savePath = os.path.join(settings.parentPath, "img.dump")
+        savePath = os.path.join(settings.settingsPath, "img.dump")
         with open(savePath, 'rb') as intp:
             detectDiff.img = pickle.load(intp)
         detectDiff.ProcessImg()
