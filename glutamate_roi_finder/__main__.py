@@ -1,5 +1,6 @@
 import sys,os
-glutamate_roi_finder_Path = os.path.abspath("")
+glutamate_roi_finder_Path = os.path.join(os.path.join(__file__, os.pardir), os.pardir)
+glutamate_roi_finder_Path = os.path.abspath(glutamate_roi_finder_Path)
 print(glutamate_roi_finder_Path)
 sys.path.insert(1, glutamate_roi_finder_Path)
 
@@ -8,4 +9,4 @@ import glutamate_roi_finder.gui.settings as settings
 
 if __name__ == "__main__":
     settings.ReadSettings()
-    #window.GUI.GUI()
+    window.GUI.GUI()
